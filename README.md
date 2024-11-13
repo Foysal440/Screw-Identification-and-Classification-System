@@ -1,11 +1,11 @@
 # Screw-Identification-and-Classification-System
 This project provides a tool for analyzing and identifying various types of screws, bolts, and nuts based on uploaded images. Using basic feature detection with OpenCV, the tool classifies the screw type and provides detailed information on the detected item, including material, head type, thread type, strength grade, coating, and application. This tool is particularly useful for professionals in manufacturing, construction, and repair who need fast, detailed identification of hardware.
 
-#Features
-###Image Analysis with OpenCV: Uses edge detection and contour analysis to identify screw types based on visual features.
-Comprehensive Screw Database: Includes detailed information for each screw type, covering material, size, head and drive types, and more.
-User-Friendly Interface: Allows users to upload an image of a screw and receive detailed information about the screw’s specifications and typical applications.
-#Demo
+# Features
+### Image Analysis with OpenCV: Uses edge detection and contour analysis to identify screw types based on visual features.
+### Comprehensive Screw Database: Includes detailed information for each screw type, covering material, size, head and drive types, and more.
+### User-Friendly Interface: Allows users to upload an image of a screw and receive detailed information about the screw’s specifications and typical applications.
+# Demo
 
 
 ##Once an image is uploaded, the tool will:
