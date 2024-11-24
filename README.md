@@ -22,7 +22,7 @@ Matplotlib
 PIL (Python Imaging Library)
 IPyWidgets (for the file upload widget)
 # Install dependencies using:
-pip install opencv-python-headless numpy matplotlib pillow ipywidgets shapely
+pip install opencv-python-headless numpy matplotlib pillow ipywidgets shapely kivy tkinterdnd2
 # Installation
 Clone the repository:git clone https://github.com/Foysal440/screw-identification.git
 # Navigate to the project directory:
