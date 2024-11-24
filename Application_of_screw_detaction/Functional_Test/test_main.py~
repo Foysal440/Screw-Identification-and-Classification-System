@@ -8,7 +8,7 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 
 # Load category information from JSON
 try:
-    with open("test_screw_data.json", "r") as f:
+    with open("screw_data.json", "r") as f:
         category_info = json.load(f)
 except FileNotFoundError:
     print("Error: 'screw_data.json' file not found. Ensure it's in the same directory as the script.")
