@@ -13,7 +13,7 @@ from kivy.uix.popup import Popup
 from kivy.core.window import Window
 from PIL import Image as PILImage
 from kivy.graphics.texture import Texture
-
+from skimage.feature import local_binary_pattern
 
 class ScrewDetectionApp(App):
     def build(self):
@@ -135,24 +135,132 @@ class ScrewDetectionApp(App):
         else:
             self.result_display.text = "No file selected!"
 
-    def analyze_image(self, file_path):
+    def is_screw_detected(self, file_path):
         """
-        Analyze an image and classify the screw.
+        Finalized screw detection logic: Balances flexible screw detection and strict non-screw rejection.
         """
         try:
+            # Step 1: Load the image and convert to grayscale
             img = PILImage.open(file_path)
             img_cv = np.array(img)
             gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
+
+            # Step 2: Preprocessing
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)  # Reduce noise
+            edges = cv2.Canny(blurred, threshold1=30, threshold2=100)  # Edge detection
+            edge_density = np.sum(edges > 0) / edges.size  # Calculate edge density
+
+            print(f"Edge density: {edge_density:.4f}")  # Debugging feedback
+
+            # Step 3: Validate Edge Density
+            if edge_density < 0.005 or edge_density > 0.35:  # Screws have moderate edge density
+                print("Rejected: Edge density outside valid range.")
+                return False
+
+            # Step 4: Find contours
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                print("Rejected: No contours found.")
+                return False  # No contours found
+
+            # Step 5: Analyze the largest contour
+            largest_contour = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(largest_contour)
+            perimeter = cv2.arcLength(largest_contour, True)
+            circularity = (4 * np.pi * area) / (perimeter ** 2) if perimeter > 0 else 0
+            x, y, w, h = cv2.boundingRect(largest_contour)
+            aspect_ratio = float(w) / h
+
+            print(
+                f"Area: {area}, Circularity: {circularity:.4f}, Aspect Ratio: {aspect_ratio:.4f}")  # Debugging feedback
+
+            # Step 6: Validate Contour Properties
+            if area < 300 or area > 50000:  # Allow small to medium screws
+                print("Rejected: Area outside valid range.")
+                return False
+            if circularity < 0.1 or circularity > 1.2:  # Allow slightly irregular shapes
+                print("Rejected: Circularity outside valid range.")
+                return False
+            if aspect_ratio < 0.2 or aspect_ratio > 6.0:  # Allow screws to be elongated or slightly wide
+                print("Rejected: Aspect ratio outside valid range.")
+                return False
+
+            # Step 7: Validate Thread-Like Structures (Optional)
+            child_contours, _ = cv2.findContours(edges[y:y + h, x:x + w], cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            thread_contours = [c for c in child_contours if 20 < cv2.contourArea(c) < 500]
+
+            print(f"Thread count: {len(thread_contours)}")  # Debugging feedback
+
+            if len(thread_contours) < 2:  # Require at least 2 thread-like features
+                print("Warning: Not enough thread-like structures, but continuing.")
+
+            # Step 8: Validate Edge Alignment
+            edge_projection = np.sum(edges[y:y + h, x:x + w], axis=1)  # Vertical edge projection
+            edge_variation = np.std(edge_projection) / np.mean(edge_projection)
+            print(f"Edge variation: {edge_variation:.4f}")  # Debugging feedback
+            if edge_variation > 2.5:  # Reject chaotic edge patterns
+                print("Rejected: Edge alignment too chaotic.")
+                return False
+
+            # Step 9: Final Check
+            print("Screw detected!")
+            return True
+
+        except Exception as e:
+            print(f"Error in screw detection: {e}")
+            return False
+
+    def analyze_image(self, file_path):
+        """
+        Analyze an image and classify the screw with refined logic.
+        """
+        try:
+            # Step 1: Check if a screw is present in the image
+            if not self.is_screw_detected(file_path):
+                return "No screw detected in the image. Please upload a valid screw image."
+
+            # Step 2: Load the image and preprocess
+            img = PILImage.open(file_path)
+            img_cv = np.array(img)
+            gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
+
+            # Enhanced edge detection
             edges = cv2.Canny(gray, threshold1=50, threshold2=150)
-            edge_count = np.sum(edges > 0)
 
-            if edge_count > 10000:
-                category_id = "1"
-            elif edge_count > 5000:
-                category_id = "2"
+            # Find contours
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            largest_contour = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(largest_contour)
+            area = cv2.contourArea(largest_contour)
+            perimeter = cv2.arcLength(largest_contour, True)
+            aspect_ratio = float(w) / h
+            circularity = (4 * np.pi * area) / (perimeter ** 2) if perimeter > 0 else 0
+
+            # Decision logic based on extracted features
+            if aspect_ratio > 0.8 and aspect_ratio < 1.2 and circularity > 0.8:
+                category_id = "5"  # Shiny Screw (Circular, decorative projects)
+            elif aspect_ratio < 0.5 and area > 10000:
+                category_id = "1"  # Long Lag Screw (Heavy-duty fastening)
+            elif aspect_ratio < 0.5 and area <= 10000:
+                category_id = "2"  # Lag Wood Screw (Structural fastening)
+            elif aspect_ratio > 1.2 and circularity < 0.6:
+                category_id = "3"  # Wood Screw (General fastening)
+            elif aspect_ratio > 0.8 and aspect_ratio < 1.2 and circularity < 0.8:
+                category_id = "6"  # Black Oxide Screw (Industrial/automotive)
+            elif area > 15000:
+                category_id = "8"  # Bolt (Heavy-duty)
+            elif aspect_ratio > 0.8 and aspect_ratio < 1.2 and w < 50 and h < 50:
+                category_id = "10"  # Phillips Screw (General home projects)
+            elif aspect_ratio > 0.8 and aspect_ratio < 1.2 and w < 30 and h < 30:
+                category_id = "12"  # Flat Head Machine Screw
+            elif aspect_ratio < 0.8 and circularity < 0.6 and area < 5000:
+                category_id = "13"  # Pan Head Sheet Metal Screw
+            elif aspect_ratio > 0.5 and aspect_ratio < 0.8 and circularity < 0.7:
+                category_id = "14"  # Self-Tapping Screw
             else:
-                category_id = "3"
+                category_id = "3"  # Default to Wood Screw if no exact match
 
+            # Retrieve screw details from JSON data
             info = self.category_info.get(
                 category_id,
                 {
@@ -169,21 +277,29 @@ class ScrewDetectionApp(App):
                     "description": "No description available."
                 }
             )
+
+            # Create detailed results
             details = (
                 f"Detected Screw Information:\n"
                 f"  - Name: {info['name']}\n"
                 f"  - Type: {info['type']}\n"
                 f"  - Material: {info['material']}\n"
                 f"  - Size: {info['size']}\n"
-                f"  - Head_type: {info['head_type']}\n"
-                f"  - Drive_type: {info['drive_type']}\n"
-                f"  - Thread_type: {info['thread_type']}\n"
-                f"  - Strength_grade: {info['strength_grade']}\n"
+                f"  - Head Type: {info['head_type']}\n"
+                f"  - Drive Type: {info['drive_type']}\n"
+                f"  - Thread Type: {info['thread_type']}\n"
+                f"  - Strength Grade: {info['strength_grade']}\n"
                 f"  - Coating: {info['coating']}\n"
                 f"  - Application: {info['application']}\n"
-                f"  - Description: {info['description']}"
+                f"  - Description: {info['description']}\n"
+                f"\nDetection Metrics:\n"
+                f"  - Aspect Ratio: {aspect_ratio:.2f}\n"
+                f"  - Circularity: {circularity:.2f}\n"
+                f"  - Area: {area:.2f}\n"
+                f"  - Bounding Box: Width={w}, Height={h}\n"
             )
             return details
+
         except Exception as e:
             return f"Error analyzing image: {e}"
 
@@ -197,8 +313,8 @@ class ScrewDetectionApp(App):
                 return "Error: Cannot open video file."
 
             frame_count = 0
-            edge_counts = []
-            frame_interval = 10
+            analysis_results = []
+            frame_interval = 10  # Analyze every 10th frame
 
             while True:
                 ret, frame = cap.read()
@@ -208,23 +324,26 @@ class ScrewDetectionApp(App):
                 if frame_count % frame_interval == 0:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     edges = cv2.Canny(gray, 50, 150)
-                    edge_counts.append(np.sum(edges > 0))
+                    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    largest_contour = max(contours, key=cv2.contourArea) if contours else None
+                    contour_area = cv2.contourArea(largest_contour) if largest_contour is not None else 0
+
+                    if len(contours) > 50 and contour_area > 10000:
+                        analysis_results.append("1")
+                    elif len(contours) > 30 and contour_area > 5000:
+                        analysis_results.append("2")
+                    else:
+                        analysis_results.append("3")
 
                 frame_count += 1
 
             cap.release()
 
-            if edge_counts:
-                avg_edge_count = np.mean(edge_counts)
-                if avg_edge_count > 10000:
-                    category_id = "1"
-                elif avg_edge_count > 5000:
-                    category_id = "2"
-                else:
-                    category_id = "3"
-
+            if analysis_results:
+                # Aggregate results
+                most_common_category = max(set(analysis_results), key=analysis_results.count)
                 info = self.category_info.get(
-                    category_id,
+                    most_common_category,
                     {
                         "name": "Unknown",
                         "type": "Unknown",
@@ -239,6 +358,7 @@ class ScrewDetectionApp(App):
                         "description": "No description available."
                     }
                 )
+
                 details = (
                     f"Detected Screw Information:\n"
                     f"  - Name: {info['name']}\n"
@@ -255,7 +375,8 @@ class ScrewDetectionApp(App):
                 )
                 return details
             else:
-                return "No frames analyzed. Video might be empty or invalid."
+                return "No valid frames analyzed."
+
         except Exception as e:
             return f"Error analyzing video: {e}"
 
